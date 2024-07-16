@@ -2,12 +2,14 @@ PORTB = $6000
 PORTA = $6001
 DDRB = $6002
 DDRA = $6003
+SR = $600A
+ACR = $600B
 
 E  = %10000000
 RW = %01000000
 RS = %00100000
 
-SD_CS   = %00010000
+SD_CS   = %10000000
 SD_SCK  = %00001000
 SD_MOSI = %00000100
 SD_MISO = %00000010
@@ -23,7 +25,7 @@ reset:
 
   lda #%11111111          ; Set all pins on port B to output
   sta DDRB
-  lda #PORTA_OUTPUTPINS   ; Set various pins on port A to output
+  lda #%00000000          ; Set all pins on port A to input
   sta DDRA
 
   jsr lcd_init
@@ -174,34 +176,66 @@ sd_waitresult:
 
 lcd_wait:
   pha
-  lda #%00000000  ; Port B is input
+  lda #%11110000              ; LCD data is input
   sta DDRB
-.busy:
-  lda #RW
-  sta PORTA
-  lda #(RW | E)
-  sta PORTA
-  lda PORTB
-  and #%10000000
-  bne .busy
 
-  lda #RW
-  sta PORTA
-  lda #%11111111  ; Port B is output
+lcdbusy:
+  lda PORTB
+  ora #SD_CS | #RW            ; Set SD_CS and RW
+  sta PORTB
+
+  ora #E                      ; Set E bit while keeping MSB set
+  sta PORTB
+
+  lda PORTB                   ; Read high nibble
+  pha                         ; and put on stack since it has the busy flag
+
+  lda PORTB
+  ora #SD_CS | #RW            ; Set SD_CS and RW
+  sta PORTB
+
+  ora #E                      ; Set E bit while keeping MSB set
+  sta PORTB
+
+  lda PORTB                   ; Read low nibble
+  pla                         ; Get high nibble off stack
+  and #%00001000
+  bne lcdbusy
+
+  lda PORTB
+  ora #SD_CS | #RW            ; Set SD_CS and RW
+  sta PORTB
+
+  lda #%11111111              ; LCD data is output
   sta DDRB
   pla
   rts
 
 lcd_instruction:
   jsr lcd_wait
+  pha
+  lsr
+  lsr
+  lsr
+  lsr                         ; Send high 4 bits
+  ora #SD_CS                  ; Ensure SD_CS is set
   sta PORTB
-  lda #0         ; Clear RS/RW/E bits
-  sta PORTA
-  lda #E         ; Set E bit to send instruction
-  sta PORTA
-  lda #0         ; Clear RS/RW/E bits
-  sta PORTA
+  ora #E | #SD_CS             ; Set E bit to send instruction
+  sta PORTB
+  eor #E                      ; Clear E bit
+  ora #SD_CS                  ; Ensure SD_CS is set
+  sta PORTB
+  pla
+  and #%00001111              ; Send low 4 bits
+  ora #SD_CS                  ; Ensure SD_CS is set
+  sta PORTB
+  ora #E                      ; Set E bit to send instruction
+  sta PORTB
+  eor #E                      ; Clear E bit
+  ora #SD_CS                  ; Ensure SD_CS is set
+  sta PORTB
   rts
+
 
 
 lcd_init:
@@ -219,13 +253,26 @@ lcd_cleardisplay:
 
 print_char:
   jsr lcd_wait
+  pha
+  lsr
+  lsr
+  lsr
+  lsr                         ; Send high 4 bits
+  ora #RS | #SD_CS            ; Set RS and SD_CS (assuming RS is defined as an appropriate constant)
+  ora #SD_CS                  ; Ensure SD_CS is set
   sta PORTB
-  lda #RS         ; Set RS; Clear RW/E bits
-  sta PORTA
-  lda #(RS | E)   ; Set E bit to send instruction
-  sta PORTA
-  lda #RS         ; Clear E bits
-  sta PORTA
+  ora #E                      ; Set E bit to send instruction
+  sta PORTB
+  and #SD_CS                  ; Clear E bit, keep SD_CS set
+  sta PORTB
+  pla
+  and #%00001111              ; Send low 4 bits
+  ora #RS | #SD_CS            ; Set RS and SD_CS
+  sta PORTB
+  ora #E                      ; Set E bit to send instruction
+  sta PORTB
+  and #SD_CS                  ; Clear E bit, keep MSB set
+  sta PORTB
   rts
 
 print_hex:
