@@ -15,7 +15,7 @@ SD_MISO = %00000010
 PORTA_OUTPUTPINS = SD_CS | SD_SCK | SD_MOSI
 
 
-  .org $e000
+  .org $8000
 
 reset:
   ldx #$ff
