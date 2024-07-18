@@ -112,56 +112,52 @@ sd_readbyte:
   ; Enable the card and tick the clock 8 times with MOSI high, 
   ; capturing bits from MISO and returning them
 
-  ldx #8                      ; we'll read 8 bits
-.loop:
+  lda PORTB                   ; Get current state of PORTB
+  and #(!SD_CS)               ; Clear SD_CS bit, keep all other bits the same
+  sta PORTB
 
-  lda #SD_MOSI                ; enable card (CS low), set MOSI (resting state), SCK low
-  sta PORTA
+  lda #$ff                    ; Pull byte to send back off stack
+  sta SR                      ; Shift out byte using 6522 SR
 
-  lda #SD_MOSI | SD_SCK       ; toggle the clock high
-  sta PORTA
+  nop                         ; Wait for bits to be shifted out
+  nop
+  nop
+  nop
+  nop
+  nop
 
-  lda PORTA                   ; read next bit
-  and #SD_MISO
+  lda PORTB                   ; Get current state of PORTB
+  ora #SD_CS                  ; Set SD_CS bit, keep all other bits the same
+  sta PORTB
 
-  clc                         ; default to clearing the bottom bit
-  beq .bitnotset              ; unless MISO was set
-  sec                         ; in which case get ready to set the bottom bit
-.bitnotset:
-
-  tya                         ; transfer partial result from Y
-  rol                         ; rotate carry bit into read result
-  tay                         ; save partial result back to Y
-
-  dex                         ; decrement counter
-  bne .loop                   ; loop if we need to read more bits
+  lda PORTA                   ; Read recieved bytes from the 74hc595 SR
 
   rts
 
 
 sd_writebyte:
-  ; Tick the clock 8 times with descending bits on MOSI
+  ; Shift out byte using the 6522's shift register
   ; SD communication is mostly half-duplex so we ignore anything it sends back here
 
-  ldx #8                      ; send 8 bits
+  pha                         ; Push byte to send to stack
 
-.loop:
-  asl                         ; shift next bit into carry
-  tay                         ; save remaining bits for later
+  lda PORTB                   ; Get current state of PORTB
+  and #(!SD_CS)               ; Clear SD_CS bit, keep all other bits the same
+  sta PORTB
 
-  lda #0
-  bcc .sendbit                ; if carry clear, don't set MOSI for this bit
-  ora #SD_MOSI
+  pla                         ; Pull byte to send back off stack
+  sta SR                      ; Shift out byte using 6522 SR
 
-.sendbit:
-  sta PORTA                   ; set MOSI (or not) first with SCK low
-  eor #SD_SCK
-  sta PORTA                   ; raise SCK keeping MOSI the same, to send the bit
+  nop                         ; Wait for bits to be shifted out
+  nop
+  nop
+  nop
+  nop
+  nop
 
-  tya                         ; restore remaining bits to send
-
-  dex
-  bne .loop                   ; loop if there are more bits to send
+  lda PORTB                   ; Get current state of PORTB
+  ora #SD_CS                  ; Set SD_CS bit, keep all other bits the same
+  sta PORTB
 
   rts
 
