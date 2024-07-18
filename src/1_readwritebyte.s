@@ -27,6 +27,8 @@ reset:
   sta DDRB
   lda #%00000000          ; Set all pins on port A to input
   sta DDRA
+  lda #%00011000          ; SR shift out under phi2
+  sta VIA_ACR
 
   jsr lcd_init
 
