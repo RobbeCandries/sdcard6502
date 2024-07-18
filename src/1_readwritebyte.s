@@ -28,7 +28,7 @@ reset:
   lda #%00000000          ; Set all pins on port A to input
   sta DDRA
   lda #%00011000          ; SR shift out under phi2
-  sta VIA_ACR
+  sta ACR
 
   jsr lcd_init
 
@@ -42,19 +42,26 @@ reset:
   ; Normally MOSI doesn't matter when CS is high, but the card is
   ; not yet is SPI mode, and in this non-SPI state it does care.
 
-  lda #SD_CS | SD_MOSI
-  ldx #160               ; toggle the clock 160 times, so 80 low-high transitions
-.preinitloop:
-  eor #SD_SCK
-  sta PORTA
+  lda PORTB               ; Set SD_CS high
+  ora #SD_CS
+  sta PORTB
+
+  ldx #10                 ; Send 10 bytes, so 80 low-high clock transitions
+  lda #$ff                ; Load $FF to send
+preinitloop:
+  sta SR                  ; Shift out byte using 6522 SR
+  nop                     ; Wait for bits to be shifted out
+  nop
+  nop
+  nop
   dex
-  bne .preinitloop
+  bne preinitloop
   
   ; Read a byte from the card, expecting $ff as no commands have been sent
   jsr sd_readbyte
   jsr print_hex
 
-.cmd0
+cmd0
   ; GO_IDLE_STATE - resets card to idle state
   ; This also puts the card in SPI mode.
   ; Unlike most commands, the CRC is checked.
@@ -86,27 +93,27 @@ reset:
   pha
   jsr print_hex
 
-  lda #SD_CS | SD_MOSI   ; set CS high again
+  lda #(SD_CS | SD_MOSI)      ; set CS high again
   sta PORTA
 
   ; Expect status response $01 (not initialized)
   pla
   cmp #$01
-  bne .initfailed
+  bne initfailed
 
 
   lda #'Y'
   jsr print_char
 
   ; loop forever
-.loop:
-  jmp .loop
+loop:
+  jmp loop
 
 
-.initfailed
+initfailed
   lda #'X'
   jsr print_char
-  jmp .loop
+  jmp loop
 
 
 
@@ -115,7 +122,7 @@ sd_readbyte:
   ; capturing bits from MISO and returning them
 
   lda PORTB                   ; Get current state of PORTB
-  and #(!SD_CS)               ; Clear SD_CS bit, keep all other bits the same
+  and #(~SD_CS)               ; Clear SD_CS bit, keep all other bits the same
   sta PORTB
 
   lda #$ff                    ; Pull byte to send back off stack
@@ -126,11 +133,10 @@ sd_readbyte:
   nop
   nop
   nop
-  nop
 
-  lda PORTB                   ; Get current state of PORTB
-  ora #SD_CS                  ; Set SD_CS bit, keep all other bits the same
-  sta PORTB
+  lda PORTB ;2                  ; Get current state of PORTB
+  ora #SD_CS ;2                 ; Set SD_CS bit, keep all other bits the same
+  sta PORTB ;4
 
   lda PORTA                   ; Read recieved bytes from the 74hc595 SR
 
@@ -144,14 +150,13 @@ sd_writebyte:
   pha                         ; Push byte to send to stack
 
   lda PORTB                   ; Get current state of PORTB
-  and #(!SD_CS)               ; Clear SD_CS bit, keep all other bits the same
+  and #(~SD_CS)               ; Clear SD_CS bit, keep all other bits the same
   sta PORTB
 
   pla                         ; Pull byte to send back off stack
   sta SR                      ; Shift out byte using 6522 SR
 
   nop                         ; Wait for bits to be shifted out
-  nop
   nop
   nop
   nop
@@ -179,7 +184,7 @@ lcd_wait:
 
 lcdbusy:
   lda PORTB
-  ora #SD_CS | #RW            ; Set SD_CS and RW
+  ora #(SD_CS | RW)           ; Set SD_CS and RW
   sta PORTB
 
   ora #E                      ; Set E bit while keeping MSB set
@@ -189,7 +194,7 @@ lcdbusy:
   pha                         ; and put on stack since it has the busy flag
 
   lda PORTB
-  ora #SD_CS | #RW            ; Set SD_CS and RW
+  ora #(SD_CS | RW)           ; Set SD_CS and RW
   sta PORTB
 
   ora #E                      ; Set E bit while keeping MSB set
@@ -201,7 +206,7 @@ lcdbusy:
   bne lcdbusy
 
   lda PORTB
-  ora #SD_CS | #RW            ; Set SD_CS and RW
+  ora #(SD_CS | RW)           ; Set SD_CS and RW
   sta PORTB
 
   lda #%11111111              ; LCD data is output
@@ -218,7 +223,7 @@ lcd_instruction:
   lsr                         ; Send high 4 bits
   ora #SD_CS                  ; Ensure SD_CS is set
   sta PORTB
-  ora #E | #SD_CS             ; Set E bit to send instruction
+  ora #(SD_CS | RW)           ; Set SD_CS and RW
   sta PORTB
   eor #E                      ; Clear E bit
   ora #SD_CS                  ; Ensure SD_CS is set
@@ -256,7 +261,7 @@ print_char:
   lsr
   lsr
   lsr                         ; Send high 4 bits
-  ora #RS | #SD_CS            ; Set RS and SD_CS (assuming RS is defined as an appropriate constant)
+  ora #(SD_CS | RW)           ; Set SD_CS and RW
   ora #SD_CS                  ; Ensure SD_CS is set
   sta PORTB
   ora #E                      ; Set E bit to send instruction
@@ -265,7 +270,7 @@ print_char:
   sta PORTB
   pla
   and #%00001111              ; Send low 4 bits
-  ora #RS | #SD_CS            ; Set RS and SD_CS
+  ora #(SD_CS | RW)           ; Set SD_CS and RW
   sta PORTB
   ora #E                      ; Set E bit to send instruction
   sta PORTB
@@ -284,9 +289,9 @@ print_hex:
 print_nybble:
   and #15
   cmp #10
-  bmi .skipletter
+  bmi skipletter
   adc #6
-.skipletter
+skipletter
   adc #48
   jsr print_char
   rts
