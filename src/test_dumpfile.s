@@ -1,4 +1,4 @@
-  .org $e000
+  .org $8000
 
   .include "hwconfig.s"
   .include "libsd.s"
