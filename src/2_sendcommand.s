@@ -3,21 +3,21 @@ PORTA = $6001
 DDRB = $6002
 DDRA = $6003
 
-E  = %10000000
-RW = %01000000
-RS = %00100000
+E  = %01000000
+RW = %00100000
+RS = %00010000
 
 SD_CS   = %00010000
 SD_SCK  = %00001000
 SD_MOSI = %00000100
 SD_MISO = %00000010
 
-PORTA_OUTPUTPINS = E | RW | RS | SD_CS | SD_SCK | SD_MOSI
+PORTA_OUTPUTPINS = SD_CS | SD_SCK | SD_MOSI
 
 zp_sd_cmd_address = $40
 
 
-  .org $e000
+  .org $8000
 
 reset:
   ldx #$ff
@@ -220,38 +220,57 @@ sd_sendcommand:
 
 lcd_wait:
   pha
-  lda #%00000000  ; Port B is input
+  lda #%11110000  ; LCD data is input
   sta DDRB
 .busy:
   lda #RW
-  sta PORTA
+  sta PORTB
   lda #(RW | E)
-  sta PORTA
-  lda PORTB
-  and #%10000000
+  sta PORTB
+  lda PORTB       ; Read high nibble
+  pha             ; and put on stack since it has the busy flag
+  lda #RW
+  sta PORTB
+  lda #(RW | E)
+  sta PORTB
+  lda PORTB       ; Read low nibble
+  pla             ; Get high nibble off stack
+  and #%00001000
   bne .busy
 
   lda #RW
-  sta PORTA
-  lda #%11111111  ; Port B is output
+  sta PORTB
+  lda #%11111111  ; LCD data is output
   sta DDRB
   pla
   rts
 
 lcd_instruction:
   jsr lcd_wait
+  pha
+  lsr
+  lsr
+  lsr
+  lsr            ; Send high 4 bits
   sta PORTB
-  lda #0         ; Clear RS/RW/E bits
-  sta PORTA
-  lda #E         ; Set E bit to send instruction
-  sta PORTA
-  lda #0         ; Clear RS/RW/E bits
-  sta PORTA
+  ora #E         ; Set E bit to send instruction
+  sta PORTB
+  eor #E         ; Clear E bit
+  sta PORTB
+  pla
+  and #%00001111 ; Send low 4 bits
+  sta PORTB
+  ora #E         ; Set E bit to send instruction
+  sta PORTB
+  eor #E         ; Clear E bit
+  sta PORTB
   rts
 
 
 lcd_init:
-  lda #%00111000 ; Set 8-bit mode; 2-line display; 5x8 font
+  lda #%00000010 ; Set 4-bit mode
+  jsr lcd_instruction
+  lda #%00101000 ; Set 4-bit mode; 2-line display; 5x8 font
   jsr lcd_instruction
   lda #%00001110 ; Display on; cursor on; blink off
   jsr lcd_instruction
@@ -261,17 +280,30 @@ lcd_init:
 lcd_cleardisplay:
   lda #%00000001 ; Clear display
   jmp lcd_instruction
+  rts
 
 
 print_char:
   jsr lcd_wait
+  pha
+  lsr
+  lsr
+  lsr
+  lsr             ; Send high 4 bits
+  ora #RS         ; Set RS
   sta PORTB
-  lda #RS         ; Set RS; Clear RW/E bits
-  sta PORTA
-  lda #(RS | E)   ; Set E bit to send instruction
-  sta PORTA
-  lda #RS         ; Clear E bits
-  sta PORTA
+  ora #E          ; Set E bit to send instruction
+  sta PORTB
+  eor #E          ; Clear E bit
+  sta PORTB
+  pla
+  and #%00001111  ; Send low 4 bits
+  ora #RS         ; Set RS
+  sta PORTB
+  ora #E          ; Set E bit to send instruction
+  sta PORTB
+  eor #E          ; Clear E bit
+  sta PORTB
   rts
 
 print_hex:
