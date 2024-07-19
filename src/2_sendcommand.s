@@ -280,7 +280,6 @@ lcd_init:
 lcd_cleardisplay:
   lda #%00000001 ; Clear display
   jmp lcd_instruction
-  rts
 
 
 print_char:
